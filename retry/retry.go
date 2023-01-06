@@ -19,9 +19,17 @@ func Do(retryableFunc RetryableFunc, opts ...Option) error {
 				return err
 			}
 			time.Sleep(retryOptions.retryDelay)
+			retryOptions.retryDelay = retryOptions.mutateRetryDelay(retryOptions.retryDelay)
 			continue
 		}
 		return nil
+	}
+}
+
+// WithRetryDelayMutation настраивает поведение изменения задержки после очередной попытки
+func WithRetryDelayMutation(mutateDelay func(time.Duration) time.Duration) Option {
+	return func(opts *options) {
+		opts.mutateRetryDelay = mutateDelay
 	}
 }
 
@@ -63,10 +71,20 @@ const (
 // DefaultRetryCallback функция вызываемая после безуспешной попытки по умолчанию
 func DefaultRetryCallback(_ uint, _ error) {}
 
+// DefaultMutateRetryDelay функция изменяющая время задержки по умолчанию (время задержки перед попыткой не изменяется)
+func DefaultMutateRetryDelay(dur time.Duration) time.Duration { return dur }
+
+// FactorMutateRetryDelay линейно возрастающая функция изменяющая время задержки
+func FactorMutateRetryDelay(dur time.Duration) time.Duration { return 2 * dur }
+
+// ExpMutateRetryDelay экспоненциально возрастающая функция изменяющая время задержки
+func ExpMutateRetryDelay(dur time.Duration) time.Duration { return dur << 1 }
+
 // options настройки поведения Do
 type options struct {
 	retryCount        uint
 	retryDelay        time.Duration
+	mutateRetryDelay  func(time.Duration) time.Duration
 	retryFailCallback func(uint, error)
 }
 
@@ -76,5 +94,6 @@ func newDefaultOptions() *options {
 		retryCount:        DefaultRetryCount,
 		retryDelay:        DefaultRetryDelay,
 		retryFailCallback: DefaultRetryCallback,
+		mutateRetryDelay:  DefaultMutateRetryDelay,
 	}
 }
