@@ -65,16 +65,16 @@ func TestGrpcHandler_DoConcurrent(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		indexIterator := NewBatch(0, len(test.inputData), test.batchSize)
+		indexIterator := NewSegmentIterator(0, len(test.inputData), test.batchSize)
 		batchHandler := NewGrpcHandler(
 			doVeryLongCalculation,
-			func() (req []int, isLast, ok bool) {
-				from, to, isLast, ok := indexIterator.Next()
+			func() (req []int, ok bool) {
+				from, to, ok := indexIterator.Next()
 				if !ok {
-					return nil, false, false
+					return nil, false
 				}
 				req = test.inputData[from:to]
-				return req, isLast, true
+				return req, true
 			},
 		)
 		t.Run(test.name, func(t *testing.T) {
@@ -132,16 +132,16 @@ func TestGrpcHandler_DoSerial(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		indexIterator := NewBatch(0, len(test.inputData), test.batchSize)
+		indexIterator := NewSegmentIterator(0, len(test.inputData), test.batchSize)
 		serialBatch := NewGrpcHandler(
 			doVeryLongCalculation,
-			func() (req []int, isLast, ok bool) {
-				from, to, isLast, ok := indexIterator.Next()
+			func() (req []int, ok bool) {
+				from, to, ok := indexIterator.Next()
 				if !ok {
-					return nil, false, false
+					return nil, false
 				}
 				req = test.inputData[from:to]
-				return req, isLast, true
+				return req, true
 			},
 		)
 		t.Run(test.name, func(t *testing.T) {
@@ -229,66 +229,22 @@ func TestSliceIndexIterator(t *testing.T) {
 			},
 		},
 	}
-	accumulateResult := func(forwardIterator *Batch) []para {
+	accumulateResult := func(forwardIterator *SegmentIterator) []para {
 		result := make([]para, 0)
 		for {
-			from, to, isLast, ok := forwardIterator.Next()
+			from, to, ok := forwardIterator.Next()
 			if !ok {
 				break
 			}
 			result = append(result, para{from, to})
-			if isLast {
-				break
-			}
 		}
 		return result
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			it := NewBatch(test.inputFrom, test.inputTo, test.inputBatchSize)
+			it := NewSegmentIterator(test.inputFrom, test.inputTo, test.inputBatchSize)
 			actulyResult := accumulateResult(it)
 			assert.Equal(t, test.expectedResult, actulyResult)
-		})
-	}
-}
-
-func TestHandlerConfigValidate(t *testing.T) {
-	tests := []struct {
-		name             string
-		inputBatchSize   int
-		inputGoRoutinNum int
-		actualIsValid    bool
-	}{
-		{
-			name:             "positive_with_concurrent",
-			inputBatchSize:   10,
-			inputGoRoutinNum: 7,
-			actualIsValid:    true,
-		},
-		{
-			name:             "negative_not_enough_goroutin_num",
-			inputBatchSize:   10,
-			inputGoRoutinNum: 0,
-			actualIsValid:    false,
-		},
-		{
-			name:             "positive_without_concurrent",
-			inputBatchSize:   10,
-			inputGoRoutinNum: 1,
-			actualIsValid:    true,
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, err := NewHandlerConfig(
-				test.inputBatchSize,
-				test.inputGoRoutinNum,
-			)
-			if test.actualIsValid {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-			}
 		})
 	}
 }

@@ -3,7 +3,7 @@ package retry
 import "time"
 
 // Do сделать в несколько попыток
-func Do(retryableFunc RetryableFunc, opts ...Option) error {
+func Do(retryableFunc func() error, opts ...Option) error {
 	retryOptions := newDefaultOptions()
 	for _, opt := range opts {
 		opt(retryOptions)
@@ -25,6 +25,9 @@ func Do(retryableFunc RetryableFunc, opts ...Option) error {
 		return nil
 	}
 }
+
+// Option функция для настройки повеления Do
+type Option func(opts *options)
 
 // WithRetryDelayMutation настраивает поведение изменения задержки после очередной попытки
 func WithRetryDelayMutation(mutateDelay func(time.Duration) time.Duration) Option {
@@ -54,12 +57,6 @@ func WithRetryDelay(delay time.Duration) Option {
 		opts.retryDelay = delay
 	}
 }
-
-// RetryableFunc функция вызов которой повторяют в случае неудачи
-type RetryableFunc func() error
-
-// Option функция для настройки повеления Do
-type Option func(opts *options)
 
 const (
 	// DefaultRetryCount количество попыток повтора по умолчанию

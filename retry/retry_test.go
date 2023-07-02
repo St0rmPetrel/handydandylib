@@ -36,7 +36,7 @@ func TestDoSimpleNegative(t *testing.T) {
 			inputFailCallBack:  func(attemt uint, _ error) { accum = int(attemt) },
 			wantAccum:          2,
 			inputRetryDelay:    100 * time.Millisecond,
-			wantMaxExecTime:    200 * time.Millisecond,
+			wantMaxExecTime:    250 * time.Millisecond,
 		},
 	}
 

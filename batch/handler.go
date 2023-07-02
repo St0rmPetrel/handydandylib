@@ -12,20 +12,20 @@ import (
 type GrpcHandler[RespT, ReqT any] struct {
 	// handle функция grpc ручки, вызов которой разбивается по батчам
 	handle func(context.Context, ReqT, ...grpc.CallOption) (RespT, error)
-	// iterator функция которая готовит реквест с батчем для handle
-	// возвращает следующий реквсет, isLast, ok
-	// внимание итератор должен быть потоко безопасен
-	iterator func() (ReqT, bool, bool)
+	// next функция которая возвращает следующий request
+	// если следующего нет, то возвращает (nil, false)
+	// внимание итератор должен быть потоко-безопасен
+	next func() (ReqT, bool)
 }
 
 // NewGrpcHandler конструктор batch обертки grpc ручки
 func NewGrpcHandler[RespT, ReqT any](
 	handle func(context.Context, ReqT, ...grpc.CallOption) (RespT, error),
-	iterator func() (ReqT, bool, bool),
+	next func() (ReqT, bool),
 ) *GrpcHandler[RespT, ReqT] {
 	return &GrpcHandler[RespT, ReqT]{
-		handle:   handle,
-		iterator: iterator,
+		handle: handle,
+		next:   next,
 	}
 }
 
@@ -53,7 +53,7 @@ func (h *GrpcHandler[RespT, ReqT]) DoConcurrent(
 	for i := 0; i < goRoutinNum; i++ {
 		g.Go(func() error {
 			for {
-				req, isLast, ok := h.iterator()
+				req, ok := h.next()
 				if !ok {
 					break
 				}
@@ -66,10 +66,6 @@ func (h *GrpcHandler[RespT, ReqT]) DoConcurrent(
 				mutex.Lock()
 				respSeries = append(respSeries, response)
 				mutex.Unlock()
-
-				if isLast {
-					break
-				}
 			}
 			return nil
 		})
@@ -90,7 +86,7 @@ func (h *GrpcHandler[RespT, ReqT]) DoConcurrent(
 func (h *GrpcHandler[RespT, ReqT]) DoSerial(ctx context.Context) ([]RespT, error) {
 	retRespSeries := make([]RespT, 0)
 	for {
-		req, isLast, ok := h.iterator()
+		req, ok := h.next()
 		if !ok {
 			break
 		}
@@ -100,10 +96,6 @@ func (h *GrpcHandler[RespT, ReqT]) DoSerial(ctx context.Context) ([]RespT, error
 			return nil, err
 		}
 		retRespSeries = append(retRespSeries, response)
-
-		if isLast {
-			break
-		}
 	}
 	return retRespSeries, nil
 }

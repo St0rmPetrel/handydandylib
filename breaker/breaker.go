@@ -7,11 +7,10 @@ import (
 	"time"
 )
 
-// Breaker is a simple implementation of a Circuit breaker is a design pattern
+// Breaker is a simple implementation of a Circuit breaker design pattern
 //
 // It is used to detect failures and encapsulates the logic of
-// preventing a failure from constantly recurring, during maintenance,
-// temporary external system failure or unexpected system difficulties.
+// preventing a failure
 func Breaker[RespT, ReqT any](
 	handler func(context.Context, ReqT) (RespT, error),
 	opts ...Option,
@@ -59,7 +58,7 @@ func Breaker[RespT, ReqT any](
 	}
 }
 
-// Callback функция котая вызывается каждый раз после размыкания цепи
+// Callback функция которая вызывается каждый раз после размыкания цепи
 // обычно используется для логов
 type Callback func(failures int, lastAttempt, shouldRetryAt time.Time)
 
@@ -91,15 +90,15 @@ func newDefaultOptions() *options {
 	}
 }
 
-// WithFailureThreshold настройка порога количетсва ошибок идущих подряд,
-// после привышения которого цепь на время размыкается
+// WithFailureThreshold настройка порога количества ошибок идущих подряд,
+// после превышения которого цепь на время размыкается
 func WithFailureThreshold(failureThreshold uint) Option {
 	return func(o *options) {
 		o.failureThreshold = failureThreshold
 	}
 }
 
-// WithUnreachableError настройка ошибки возвращаймой после во время того как цепь
+// WithUnreachableError настройка ошибки возвращаемой во время того как цепь
 // разомкнута (обычно это ошибка что сервис не доступен)
 func WithUnreachableError(errUnreachable error) Option {
 	return func(o *options) {
@@ -114,7 +113,7 @@ func WithBreakDelay(delay time.Duration) Option {
 	}
 }
 
-// WithBreakCallback настройка функции callback вызваемой после попытки запроса
+// WithBreakCallback настройка функции callback вызываемой после попытки запроса
 // при разомкнутой цепи
 func WithBreakCallback(callback Callback) Option {
 	return func(o *options) {
