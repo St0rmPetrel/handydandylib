@@ -10,8 +10,9 @@ type Builder struct {
 	s   []string
 	f   from
 	whr []withArgs
-	g   []withArgs
+	g   []string
 	h   []withArgs
+	ord []string
 	l   withArgs
 }
 
@@ -64,11 +65,8 @@ func (b *Builder) Where(cond string, args ...any) *Builder {
 	return b
 }
 
-func (b *Builder) GroupBy(columns string, args ...any) *Builder {
-	b.g = append(b.g, withArgs{
-		s:    columns,
-		args: args,
-	})
+func (b *Builder) GroupBy(columns string) *Builder {
+	b.g = append(b.g, columns)
 	return b
 }
 
@@ -77,6 +75,11 @@ func (b *Builder) Having(cond string, args ...any) *Builder {
 		s:    cond,
 		args: args,
 	})
+	return b
+}
+
+func (b *Builder) OrderBy(columns string) *Builder {
+	b.ord = append(b.ord, columns)
 	return b
 }
 
@@ -141,9 +144,7 @@ func (b *Builder) ToQuery() (string, []any) {
 	}
 	// GROUP BY
 	if len(b.g) > 0 {
-		raw := mergeArgs(b.g)
-		args = append(args, raw.args...)
-		rawGB := fmt.Sprintf("GROUP BY %s", raw.s)
+		rawGB := fmt.Sprintf("GROUP BY %s", strings.Join(b.g, ", "))
 		query = strings.Join([]string{query, rawGB}, " ")
 	}
 	// HAVING
@@ -152,6 +153,11 @@ func (b *Builder) ToQuery() (string, []any) {
 		args = append(args, raw.args...)
 		rawHv := fmt.Sprintf("WHERE %s", raw.s)
 		query = strings.Join([]string{query, rawHv}, " ")
+	}
+	// ORDER BY
+	if len(b.ord) > 0 {
+		rawOrd := fmt.Sprintf("ORDER BY %s", strings.Join(b.ord, ", "))
+		query = strings.Join([]string{query, rawOrd}, " ")
 	}
 	// LIMIT
 	if b.l.s != "" {
