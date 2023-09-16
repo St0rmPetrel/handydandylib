@@ -18,7 +18,7 @@ func TestBufferPositive(t *testing.T) {
 		"empty": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return nil
 				},
 			),
@@ -28,7 +28,7 @@ func TestBufferPositive(t *testing.T) {
 		"one": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return in.Sent(1)
 				},
 			),
@@ -38,7 +38,7 @@ func TestBufferPositive(t *testing.T) {
 		"1_2_10": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 2; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -53,7 +53,7 @@ func TestBufferPositive(t *testing.T) {
 		"1_10_2": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -68,7 +68,7 @@ func TestBufferPositive(t *testing.T) {
 		"1_10_3": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -107,7 +107,7 @@ func TestBufferNegative(t *testing.T) {
 		"immediately_err": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, _ *StreamIn[int]) error {
+				func(_ context.Context, _ *In[int]) error {
 					return streamErr
 				},
 			),
@@ -117,7 +117,7 @@ func TestBufferNegative(t *testing.T) {
 		"deffer_err": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -153,7 +153,7 @@ func TestBufferClose(t *testing.T) {
 		"sent_1": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					if err := in.Sent(1); err != nil {
 						return err
 					}
@@ -167,7 +167,7 @@ func TestBufferClose(t *testing.T) {
 		"infinity_sent_10": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					i := 1
 					for {
 						if err := in.Sent(i); err != nil {
@@ -195,8 +195,58 @@ func TestBufferClose(t *testing.T) {
 					buffSt.Close()
 				}
 			}
-			require.Equal(t, context.Canceled, buffSt.Err())
+			require.NoError(t, buffSt.Err())
 			require.ElementsMatch(t, resp, test.expected)
+		})
+	}
+}
+
+func TestBufferCancelCtx(t *testing.T) {
+	tests := map[string]struct {
+		streamH  func(context.Context, *In[int]) error
+		buffSize int
+		lastEl   []int
+		expected [][]int
+	}{
+		"sent_1": {
+			streamH: func(_ context.Context, in *In[int]) error {
+				for {
+					if err := in.Sent(1); err != nil {
+						return err
+					}
+				}
+			},
+			lastEl:   []int{1},
+			buffSize: 1,
+		},
+		"infinity_sent_10": {
+			streamH: func(_ context.Context, in *In[int]) error {
+				i := 1
+				for {
+					if err := in.Sent(i); err != nil {
+						return err
+					}
+					i++
+				}
+			},
+			buffSize: 2,
+			lastEl:   []int{9, 10},
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			buffSt := NewBuffer(ctx, New(ctx, test.streamH), test.buffSize)
+
+			for data := range buffSt.Data() {
+				if sliceEq(data, test.lastEl) {
+					cancel()
+				}
+			}
+			require.ErrorIs(t, context.Canceled, buffSt.Err())
 		})
 	}
 }

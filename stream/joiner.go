@@ -34,7 +34,7 @@ func (j *Joiner[T]) Stream(ctx context.Context) *Stream[T] {
 		}
 	}
 
-	pipe := func(out *Stream[T], in *StreamIn[T]) error {
+	pipe := func(out *Stream[T], in *In[T]) error {
 		for data := range out.Data() {
 			if err := in.Sent(data); err != nil {
 				return err
@@ -43,18 +43,13 @@ func (j *Joiner[T]) Stream(ctx context.Context) *Stream[T] {
 		return out.Err()
 	}
 
-	m := &sync.Mutex{}
 	once := &sync.Once{}
-	handler := func(ctx context.Context, in *StreamIn[T]) error {
+	handler := func(ctx context.Context, in *In[T]) error {
 		g, _ := errgroup.WithContext(ctx)
 		for _, strm := range j.strms {
 			out := strm
 			g.Go(func() error {
 				if err := pipe(out, in); err != nil {
-					// мьтекс на случай что бы закрытие контекстов
-					// child streams не перекрыло первую ошибку.
-					m.Lock()
-					defer m.Unlock()
 					once.Do(func() { closeChilds() })
 					return err
 				}
@@ -66,7 +61,7 @@ func (j *Joiner[T]) Stream(ctx context.Context) *Stream[T] {
 
 	return New(
 		ctx,
-		func(ctx context.Context, in *StreamIn[T]) error {
+		func(ctx context.Context, in *In[T]) error {
 			err := handler(ctx, in)
 			// ждет пока child streams закроются, только после этого закрывается сам.
 			closeChilds()

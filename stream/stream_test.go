@@ -17,7 +17,7 @@ func TestStreamPositive(t *testing.T) {
 		"empty": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, _ *StreamIn[int]) error {
+				func(_ context.Context, _ *In[int]) error {
 					return nil
 				},
 			),
@@ -26,7 +26,7 @@ func TestStreamPositive(t *testing.T) {
 		"1": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return in.Sent(1)
 				},
 			),
@@ -35,7 +35,7 @@ func TestStreamPositive(t *testing.T) {
 		"1_10": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -70,7 +70,7 @@ func TestStreamNegative(t *testing.T) {
 		"immediately_err": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, _ *StreamIn[int]) error {
+				func(_ context.Context, _ *In[int]) error {
 					return streamErr
 				},
 			),
@@ -79,7 +79,7 @@ func TestStreamNegative(t *testing.T) {
 		"deferred_err": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -111,7 +111,7 @@ func TestStreamClose(t *testing.T) {
 		"sent_1": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					if err := in.Sent(1); err != nil {
 						return err
 					}
@@ -124,7 +124,7 @@ func TestStreamClose(t *testing.T) {
 		"infinity_sent_10": {
 			stream: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					i := 1
 					for {
 						if err := in.Sent(i); err != nil {
@@ -149,8 +149,53 @@ func TestStreamClose(t *testing.T) {
 					test.stream.Close()
 				}
 			}
-			require.Equal(t, context.Canceled, test.stream.Err())
+			require.NoError(t, test.stream.Err())
 			require.ElementsMatch(t, resp, test.expected)
+		})
+	}
+}
+
+func TestStreamCancelCtx(t *testing.T) {
+	tests := map[string]struct {
+		streamInHandler func(ctx context.Context, in *In[int]) error
+		lastEl          int
+		expected        []int
+	}{
+		"sent_1": {
+			streamInHandler: func(_ context.Context, in *In[int]) error {
+				for {
+					if err := in.Sent(1); err != nil {
+						return err
+					}
+				}
+			},
+			lastEl: 1,
+		},
+		"infinity_sent_10": {
+			streamInHandler: func(_ context.Context, in *In[int]) error {
+				i := 1
+				for {
+					if err := in.Sent(i); err != nil {
+						return err
+					}
+					i++
+				}
+			},
+			lastEl: 10,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			strm := New(ctx, test.streamInHandler)
+			for data := range strm.Data() {
+				if data >= test.lastEl {
+					cancel()
+				}
+			}
+			require.ErrorIs(t, strm.Err(), context.Canceled)
 		})
 	}
 }

@@ -12,7 +12,7 @@ func NewBuffer[T any](
 ) *Stream[[]T] {
 	return New(
 		ctx,
-		func(ctx context.Context, in *StreamIn[[]T]) error {
+		func(ctx context.Context, in *In[[]T]) error {
 			defer stream.Close()
 			buff := make([]T, 0, buffSize)
 

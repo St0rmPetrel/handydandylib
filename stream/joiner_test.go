@@ -18,13 +18,13 @@ func TestJoinerPositive(t *testing.T) {
 		"empty": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return nil
 				},
 			),
 			streamB: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return nil
 				},
 			),
@@ -33,13 +33,13 @@ func TestJoinerPositive(t *testing.T) {
 		"1": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return in.Sent(1)
 				},
 			),
 			streamB: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return in.Sent(1)
 				},
 			),
@@ -48,7 +48,7 @@ func TestJoinerPositive(t *testing.T) {
 		"1_10_even_odd": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if i%2 == 0 {
 							if err := in.Sent(i); err != nil {
@@ -61,7 +61,7 @@ func TestJoinerPositive(t *testing.T) {
 			),
 			streamB: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if i%2 != 0 {
 							if err := in.Sent(i); err != nil {
@@ -103,13 +103,13 @@ func TestJoinerNegative(t *testing.T) {
 		"both_err": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return streamErr
 				},
 			),
 			streamB: New(
 				context.Background(),
-				func(ctx context.Context, in *StreamIn[int]) error {
+				func(ctx context.Context, in *In[int]) error {
 					return streamErr
 				},
 			),
@@ -118,13 +118,13 @@ func TestJoinerNegative(t *testing.T) {
 		"one_err": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return streamErr
 				},
 			),
 			streamB: New(
 				context.Background(),
-				func(ctx context.Context, in *StreamIn[int]) error {
+				func(ctx context.Context, in *In[int]) error {
 					for {
 						if err := in.Sent(1); err != nil {
 							return err
@@ -137,7 +137,7 @@ func TestJoinerNegative(t *testing.T) {
 		"deferred_one_err": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for i := 1; i <= 10; i++ {
 						if err := in.Sent(i); err != nil {
 							return err
@@ -148,7 +148,7 @@ func TestJoinerNegative(t *testing.T) {
 			),
 			streamB: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					for {
 						if err := in.Sent(1); err != nil {
 							return err
@@ -181,13 +181,13 @@ func TestJoinerClose(t *testing.T) {
 		"sent_1": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					return in.Sent(1)
 				},
 			),
 			streamB: New(
 				context.Background(),
-				func(ctx context.Context, in *StreamIn[int]) error {
+				func(ctx context.Context, in *In[int]) error {
 					return in.Sent(1)
 				},
 			),
@@ -196,7 +196,7 @@ func TestJoinerClose(t *testing.T) {
 		"infinity_sent_10_even_odd": {
 			streamA: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					i := 1
 					for {
 						if i%2 == 0 {
@@ -210,7 +210,7 @@ func TestJoinerClose(t *testing.T) {
 			),
 			streamB: New(
 				context.Background(),
-				func(_ context.Context, in *StreamIn[int]) error {
+				func(_ context.Context, in *In[int]) error {
 					i := 1
 					for {
 						if i%2 != 0 {
@@ -241,7 +241,82 @@ func TestJoinerClose(t *testing.T) {
 				}
 				prev = data
 			}
-			require.Equal(t, context.Canceled, strm.Err())
+			require.NoError(t, strm.Err())
+		})
+	}
+}
+
+func TestJoinerCancelCtx(t *testing.T) {
+	tests := map[string]struct {
+		streamA *Stream[int]
+		streamB *Stream[int]
+		lastEl  int
+	}{
+		"sent_1": {
+			streamA: New(
+				context.Background(),
+				func(_ context.Context, in *In[int]) error {
+					return nil
+				},
+			),
+			streamB: New(
+				context.Background(),
+				func(ctx context.Context, in *In[int]) error {
+					for {
+						if err := in.Sent(1); err != nil {
+							return err
+						}
+					}
+				},
+			),
+			lastEl: 1,
+		},
+		"infinity_sent_10_even_odd": {
+			streamA: New(
+				context.Background(),
+				func(_ context.Context, in *In[int]) error {
+					i := 1
+					for {
+						if i%2 == 0 {
+							if err := in.Sent(i); err != nil {
+								return err
+							}
+						}
+						i++
+					}
+				},
+			),
+			streamB: New(
+				context.Background(),
+				func(_ context.Context, in *In[int]) error {
+					i := 1
+					for {
+						if i%2 != 0 {
+							if err := in.Sent(i); err != nil {
+								return err
+							}
+						}
+						i++
+					}
+				},
+			),
+			lastEl: 10,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			joiner := NewJoiner(test.streamA, test.streamB)
+			strm := joiner.Stream(ctx)
+
+			for data := range strm.Data() {
+				if data >= test.lastEl {
+					cancel()
+				}
+			}
+			require.ErrorIs(t, context.Canceled, strm.Err())
 		})
 	}
 }

@@ -2,24 +2,31 @@ package stream
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 )
 
-// Stream поток данных, похож на канал, но с обработкой ошибок и без нужды
-// корректного закрытия, так как закрывается сам после осушения.
-// Также в отличии от канала, поток не паникует.
+// Stream поток данных, похож на канал, но с обработкой ошибок.
+// Также в отличии от канала, поток не паникует и его можно закрывать несколько раз.
 type Stream[T any] struct {
-	dataCh chan T
-	errCh  chan error
-	cancel func()
-	close  *sync.WaitGroup
+	dataCh  chan T
+	closeCh chan struct{}
+	err     error
+
+	sync.WaitGroup
 }
 
-// Close закрывает канал, после закрытия по каналу гарантированно не придут данные.
-// Можно закрывать несколько раз.
+var errSentFail = fmt.Errorf("fail to sent data")
+
+// Close принудительно закрывает канал.
+// При этом после такого закрытия можно не вызывать strm.Err(),
+// а если вызвать он вернет nil.
+// Также после отработки данного метода канал strm.Data() будет гарантированно закрыт.
 func (s *Stream[T]) Close() {
-	s.cancel()
-	s.close.Wait()
+	s.close()
+	// ждем когда закроется dataCh, что бы гарантировать что после Close из Data ничего не придет.
+	s.Wait()
 }
 
 // Data возвращает канал данных, который может быть закрыт.
@@ -29,73 +36,80 @@ func (s *Stream[T]) Data() <-chan T {
 }
 
 // Err проверяет закрылся ли поток по ошибке.
-// Нужно проверять корректно ли закрылся поток ВСЕГДА, иначе будет утечка.
-// Даже когда мы закрыли канал через Close, нужно проверить что Err() == context.Canceled.
-// В случае Err() == nil, поток был осушен без ошибок.
 func (s *Stream[T]) Err() error {
-	err, ok := <-s.errCh
-	if !ok {
-		return nil
-	}
-	return err
+	s.Wait()
+	return s.err
 }
 
-// StreamIn вход потока, пользователь взаимодействует со входом данных только на этапе создания потока.
-type StreamIn[T any] struct {
-	dataCh chan<- T
-	ctx    context.Context
+func (s *Stream[T]) close() {
+	defer func() {
+		_ = recover()
+	}()
+	s.closeCh <- struct{}{}
+}
+
+// In вход потока, пользователь взаимодействует со входом данных только на этапе создания потока.
+type In[T any] struct {
+	ctx  context.Context
+	strm *Stream[T]
 }
 
 // Sent отправляет данные в поток.
-func (si *StreamIn[T]) Sent(data T) (err error) {
+func (i *In[T]) Sent(data T) (err error) {
 	defer func() {
 		if x := recover(); x != nil {
-			err = si.ctx.Err()
+			err = errSentFail
 		}
 	}()
-	si.dataCh <- data
+	i.strm.dataCh <- data
 	return
 }
 
 // New конструктор потока, сразу начинает транслировать данные.
 func New[T any](
 	ctx context.Context,
-	handler func(ctx context.Context, in *StreamIn[T]) error,
+	handler func(ctx context.Context, in *In[T]) error,
 ) *Stream[T] {
-	cctx, cancel := context.WithCancel(ctx)
-	retCh := make(chan T)
-	errCh := make(chan error)
+	strm := Stream[T]{
+		dataCh:  make(chan T),
+		closeCh: make(chan struct{}),
+	}
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
+	// close stream
+	strm.Add(1)
 	go func() {
-		defer wg.Done()
-		<-cctx.Done()
-		close(retCh)
+		defer strm.Done()
+
+		select {
+		case <-ctx.Done():
+		case <-strm.closeCh:
+		}
+		close(strm.closeCh)
+		close(strm.dataCh)
 	}()
 
-	in := &StreamIn[T]{
-		dataCh: retCh,
-		ctx:    cctx,
+	in := &In[T]{
+		ctx:  ctx,
+		strm: &strm,
 	}
 
-	streamF := func(ctx context.Context, in *StreamIn[T]) error {
-		defer cancel()
-		return handler(ctx, in)
-	}
+	// handle error
+	strm.Add(1)
 	go func() {
-		defer close(errCh)
-
-		if err := streamF(cctx, in); err != nil {
-			errCh <- err
-			return
+		defer strm.Done()
+		err := handler(ctx, in)
+		strm.close()
+		if err != nil {
+			if errors.Is(err, errSentFail) {
+				// context Canceled
+				// or nil if stream is manual closed
+				strm.err = ctx.Err()
+			} else {
+				// some unexpected handler error
+				strm.err = err
+			}
 		}
 	}()
 
-	return &Stream[T]{
-		dataCh: retCh,
-		errCh:  errCh,
-		cancel: cancel,
-		close:  wg,
-	}
+	return &strm
 }
